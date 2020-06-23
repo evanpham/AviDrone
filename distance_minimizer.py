@@ -29,7 +29,7 @@ east = {'n':0, 'e':1}
 west = {'n':0, 'e':-1}
 choices = (north, south, east, west)
 weights = [25, 25, 25, 25]
-weight_range = (10, 40)
+weight_range = (5, 45)
 
 
 def send_velocity_cmd(north_vel, east_vel, down_vel, duration):
@@ -163,41 +163,42 @@ def minimize_distance(location, tolerance=0.5):
         impact_factor = abs(dist - last_dist) # Magnitude of difference indicates how directly towards/away from the target the movement was
         weight_shift = 10 #* impact_factor # Changes weight most significantly when actions result in large changes in distance from target
 
-        if weights[choice_ind] in range(weight_range[0], weight_range[1]):
-            print(weights)
-            # That move got us closer
-            # Increase likelihood that next move is the same
-            if last_dist > dist:
-                # choice_ind odd means choice was south or west
-                # Opposing direction is choice_ind - 1
-                if choice_ind % 2 == 1:
-                    weights[choice_ind] = weights[choice_ind] + weight_shift
-                    weights[choice_ind-1] = weights[choice_ind-1] - weight_shift
-                # choice_ind even means choice was north or east
-                # Opposing direction is choice_ind + 1
-                else:
-                    weights[choice_ind] = weights[choice_ind] + weight_shift
-                    weights[choice_ind+1] = weights[choice_ind+1] - weight_shift
-            # That move put us father away from the target
-            # Decrease likelihood that next move is the same
+        print(weights)
+        # That move got us closer
+        # If a weight shift will stay within the weight range, increase likelihood that next move is the same
+        if last_dist > dist and weights[choice_ind] + weight_shift in range(weight_range[0], weight_range[1] + 1):
+            # choice_ind odd means choice was south or west
+            # Opposing direction is choice_ind - 1
+            if choice_ind % 2 == 1:
+                weights[choice_ind] = weights[choice_ind] + weight_shift
+                weights[choice_ind-1] = weights[choice_ind-1] - weight_shift
+            # choice_ind even means choice was north or east
+            # Opposing direction is choice_ind + 1
             else:
-                # choice_ind odd means choice was south or west
-                # Opposing direction is choice_ind - 1
-                if choice_ind % 2 == 1:
-                    weights[choice_ind] = weights[choice_ind] - weight_shift
-                    weights[choice_ind-1] = weights[choice_ind-1] + weight_shift
-                # choice_ind even means choice was north or east
-                # Opposing direction is choice_ind + 1
-                else:
-                    weights[choice_ind] = weights[choice_ind] - weight_shift
-                    weights[choice_ind+1] = weights[choice_ind+1] + weight_shift
+                weights[choice_ind] = weights[choice_ind] + weight_shift
+                weights[choice_ind+1] = weights[choice_ind+1] - weight_shift
+        # That move put us father away from the target
+        # If a weight shift will stay within the weight range, decrease likelihood that next move is the same
+        elif last_dist < dist and weights[choice_ind] - weight_shift in range(weight_range[0], weight_range[1] + 1):
+            # choice_ind odd means choice was south or west
+            # Opposing direction is choice_ind - 1
+            if choice_ind % 2 == 1:
+                weights[choice_ind] = weights[choice_ind] - weight_shift
+                weights[choice_ind-1] = weights[choice_ind-1] + weight_shift
+            # choice_ind even means choice was north or east
+            # Opposing direction is choice_ind + 1
+            else:
+                weights[choice_ind] = weights[choice_ind] - weight_shift
+                weights[choice_ind+1] = weights[choice_ind+1] + weight_shift
     print("CLOSE ENOUGH")
     return 
 
 arm_and_takeoff(2)
 move(20, 25)
 
+start_time = time.time()
 minimize_distance(vehicle.home_location, tolerance=3)
+print("--- %s seconds ---" % (time.time() - start_time))
 
 vehicle.mode = VehicleMode("LAND")
 vehicle.parameters["WPNAV_SPEED_DN"] = 10  # Set landing speed to 10 cm/s
