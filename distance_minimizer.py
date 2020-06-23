@@ -154,7 +154,9 @@ def minimize_distance(location, tolerance=0.5):
     while dist >= tolerance:
         # Choose action and execute
         action = random.choices(choices, weights=weights, k=1)[0]
-        move(action['n'], action['e'])
+        prox_factor = dist * 0.15 if dist * 0.15 > 1 else 1   # Each action moves the drone 10% of the distance to the target (minimum 1 meter)
+        print(prox_factor)
+        move(action['n'] * prox_factor, action['e'] * prox_factor)
         
         # Update distance reading and calculate action choice weight shift
         last_dist = dist
