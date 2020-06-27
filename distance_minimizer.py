@@ -203,17 +203,22 @@ def update_weights(choice_ind, last_dist, dist, weight_shift):
 def minimize_distance(location, tolerance=0.5):
     dist = get_distance_meters(vehicle.location.global_relative_frame, location)
     while dist >= tolerance:
+        # Get location before action
+        start_loc = vehicle.location.global_relative_frame
         # Choose action and execute
         action = random.choices(choices, weights=weights, k=1)[0]
         prox_factor = 0.15
-        travel_dist = dist * prox_factor if dist * prox_factor > 1 else 1   # Each action moves the drone 100 * prox_factor % of the distance to the target (minimum 1 meter)
-        move(action['n'] * travel_dist, action['e'] * travel_dist)
+        target_travel_dist = dist * prox_factor if dist * prox_factor > 1 else 1   # Each action moves the drone 100 * prox_factor % of the distance to the target (minimum 1 meter)
+        move(action['n'] * target_travel_dist, action['e'] * target_travel_dist)
 
         # Update distance reading and calculate action choice weight shift
         last_dist = dist
         dist = get_distance_meters(vehicle.location.global_relative_frame, location)
         choice_ind = choices.index(action)
-        impact_factor = abs(dist - last_dist) / travel_dist  # Relative magnitude of difference indicates how directly towards/away from the target the movement was
+
+        # Calculate real travel distance and impact factor
+        real_travel_dist = get_distance_meters(vehicle.location.global_relative_frame, start_loc)
+        impact_factor = abs(dist - last_dist) / real_travel_dist  # Relative magnitude of difference indicates how directly towards/away from the target the movement was
         weight_shift = 20 * impact_factor  # Changes weight most significantly when actions result in large changes in distance from target
 
         print("last: %s" % last_dist)
