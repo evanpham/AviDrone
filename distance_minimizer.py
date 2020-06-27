@@ -23,13 +23,13 @@ vehicle = connect(connect_string, wait_ready=True)
 # We want this distribution to change according to whether the last move got us closer or farther away
 
 # Define movement choices and initialize choice weights evenly
-north = {'n':1, 'e':0}
-south = {'n':-1, 'e':0}
-east = {'n':0, 'e':1}
-west = {'n':0, 'e':-1}
+north = {'n': 1, 'e': 0}
+south = {'n': -1, 'e': 0}
+east = {'n': 0, 'e': 1}
+west = {'n': 0, 'e': -1}
 choices = (north, south, east, west)
 weights = [25, 25, 25, 25]
-weight_range = (5, 45)
+weight_range = {'min': 5, 'max': 45}
 
 
 def send_velocity_cmd(north_vel, east_vel, down_vel, duration):
@@ -104,7 +104,7 @@ def arm_and_takeoff(target):
     while not vehicle.is_armable:
         print("Waiting for vehicle to initialise...")
         time.sleep(1)
-    
+
     while not vehicle.home_location:
         cmds = vehicle.commands
         cmds.download()
@@ -139,14 +139,65 @@ def move(n_target, e_target, tolerance=0.5):
     tolerance defines how close the quad must get before moving on
     """
     print("Moving %g meters north and %g meters east" % (n_target, e_target))
-    target = get_location_meters(vehicle.location.global_relative_frame, n_target, e_target)  # NED velocities relative to copter frame (north forward, east right)
+    target = get_location_meters(vehicle.location.global_relative_frame, n_target, e_target)
     vehicle.simple_goto(target)
     distance = get_distance_meters(vehicle.location.global_relative_frame, target)
 
     while distance >= tolerance:
-        #print("Distance to Target: %s" % distance)
         distance = get_distance_meters(vehicle.location.global_relative_frame, target)
         time.sleep(1)
+
+
+def update_weights(choice_ind, last_dist, dist, weight_shift):
+    # That move got us closer
+    # If a weight shift will stay within the weight range, increase likelihood that next move is the same
+    if last_dist > dist and int(weights[choice_ind] + weight_shift) in range(weight_range['min'], weight_range['max'] + 1):
+        # choice_ind odd means choice was south or west
+        # Opposing direction is choice_ind - 1
+        if choice_ind % 2 == 1:
+            weights[choice_ind] = weights[choice_ind] + weight_shift
+            weights[choice_ind - 1] = weights[choice_ind - 1] - weight_shift
+        # choice_ind even means choice was north or east
+        # Opposing direction is choice_ind + 1
+        else:
+            weights[choice_ind] = weights[choice_ind] + weight_shift
+            weights[choice_ind + 1] = weights[choice_ind + 1] - weight_shift
+    # That move put us father away from the target
+    # If a weight shift will stay within the weight range, decrease likelihood that next move is the same
+    elif last_dist < dist and int(weights[choice_ind] - weight_shift) in range(weight_range['min'], weight_range['max'] + 1):
+        # choice_ind odd means choice was south or west
+        # Opposing direction is choice_ind - 1
+        if choice_ind % 2 == 1:
+            weights[choice_ind] = weights[choice_ind] - weight_shift
+            weights[choice_ind - 1] = weights[choice_ind - 1] + weight_shift
+        # choice_ind even means choice was north or east
+        # Opposing direction is choice_ind + 1
+        else:
+            weights[choice_ind] = weights[choice_ind] - weight_shift
+            weights[choice_ind + 1] = weights[choice_ind + 1] + weight_shift
+    # If the weight shift would violate weight range, set weights to limits of weight range
+    elif last_dist > dist and int(weights[choice_ind] + weight_shift) not in range(weight_range['min'], weight_range['max'] + 1):
+        # choice_ind odd means choice was south or west
+        # Opposing direction is choice_ind - 1
+        if choice_ind % 2 == 1:
+            weights[choice_ind] = weight_range['max']
+            weights[choice_ind - 1] = weight_range['min']
+        # choice_ind even means choice was north or east
+        # Opposing direction is choice_ind + 1
+        else:
+            weights[choice_ind] = weight_range['max']
+            weights[choice_ind + 1] = weight_range['min']
+    elif last_dist < dist and int(weights[choice_ind] - weight_shift) not in range(weight_range['min'], weight_range['max'] + 1):
+        # choice_ind odd means choice was south or west
+        # Opposing direction is choice_ind - 1
+        if choice_ind % 2 == 1:
+            weights[choice_ind] = weight_range['min']
+            weights[choice_ind - 1] = weight_range['max']
+        # choice_ind even means choice was north or east
+        # Opposing direction is choice_ind + 1
+        else:
+            weights[choice_ind] = weight_range['min']
+            weights[choice_ind + 1] = weight_range['max']
 
 
 def minimize_distance(location, tolerance=0.5):
@@ -154,46 +205,27 @@ def minimize_distance(location, tolerance=0.5):
     while dist >= tolerance:
         # Choose action and execute
         action = random.choices(choices, weights=weights, k=1)[0]
-        prox_factor = dist * 0.15 if dist * 0.15 > 1 else 1   # Each action moves the drone 10% of the distance to the target (minimum 1 meter)
-        print(prox_factor)
-        move(action['n'] * prox_factor, action['e'] * prox_factor)
-        
+        prox_factor = 0.15
+        travel_dist = dist * prox_factor if dist * prox_factor > 1 else 1   # Each action moves the drone 100 * prox_factor % of the distance to the target (minimum 1 meter)
+        move(action['n'] * travel_dist, action['e'] * travel_dist)
+
         # Update distance reading and calculate action choice weight shift
         last_dist = dist
         dist = get_distance_meters(vehicle.location.global_relative_frame, location)
         choice_ind = choices.index(action)
-        impact_factor = abs(dist - last_dist) # Magnitude of difference indicates how directly towards/away from the target the movement was
-        weight_shift = 10 #* impact_factor # Changes weight most significantly when actions result in large changes in distance from target
+        impact_factor = abs(dist - last_dist) / travel_dist  # Relative magnitude of difference indicates how directly towards/away from the target the movement was
+        weight_shift = 20 * impact_factor  # Changes weight most significantly when actions result in large changes in distance from target
 
-        print(weights)
-        # That move got us closer
-        # If a weight shift will stay within the weight range, increase likelihood that next move is the same
-        if last_dist > dist and weights[choice_ind] + weight_shift in range(weight_range[0], weight_range[1] + 1):
-            # choice_ind odd means choice was south or west
-            # Opposing direction is choice_ind - 1
-            if choice_ind % 2 == 1:
-                weights[choice_ind] = weights[choice_ind] + weight_shift
-                weights[choice_ind-1] = weights[choice_ind-1] - weight_shift
-            # choice_ind even means choice was north or east
-            # Opposing direction is choice_ind + 1
-            else:
-                weights[choice_ind] = weights[choice_ind] + weight_shift
-                weights[choice_ind+1] = weights[choice_ind+1] - weight_shift
-        # That move put us father away from the target
-        # If a weight shift will stay within the weight range, decrease likelihood that next move is the same
-        elif last_dist < dist and weights[choice_ind] - weight_shift in range(weight_range[0], weight_range[1] + 1):
-            # choice_ind odd means choice was south or west
-            # Opposing direction is choice_ind - 1
-            if choice_ind % 2 == 1:
-                weights[choice_ind] = weights[choice_ind] - weight_shift
-                weights[choice_ind-1] = weights[choice_ind-1] + weight_shift
-            # choice_ind even means choice was north or east
-            # Opposing direction is choice_ind + 1
-            else:
-                weights[choice_ind] = weights[choice_ind] - weight_shift
-                weights[choice_ind+1] = weights[choice_ind+1] + weight_shift
+        print("last: %s" % last_dist)
+        print("current: %s" % dist)
+        print("impact factor: %s" % impact_factor)
+        print("weight shift: %s" % weight_shift)
+        update_weights(choice_ind, last_dist, dist, weight_shift)
+        print("weights: %s\n" % weights)
+
     print("CLOSE ENOUGH")
-    return 
+    return
+
 
 arm_and_takeoff(2)
 move(20, 25)
