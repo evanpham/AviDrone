@@ -250,8 +250,7 @@ def minimizeDistance(beacon, tolerance=0.5):
 
 
 armAndTakeoff(2)
-beacon = Beacon(vehicle.home_location)
-sendVelocityCmd(2, 2.5, 0, 12)
+beacon = Beacon(getLocationMeters(vehicle.home_location, 20, 25))
 
 startTime = time.time()
 target = minimizeDistance(beacon, tolerance=0.5)
