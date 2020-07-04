@@ -4,35 +4,26 @@ from dronekit import connect, VehicleMode, LocationGlobal, LocationGlobalRelativ
 import time, math
 from pymavlink import mavutil
 import random
+from Beacon import Beacon
 
 # Connect to SITL vehicle
 from dronekit_sitl import SITL
 sitl = SITL()
 sitl.download('copter', '3.3', verbose=True)
-sitl_args = ['-I0', '--model', 'quad', '--home=49.26778354815404,-123.17927956581117,0,90']
+sitl_args = ['-I0', '--model', 'quad', '--home=49.26778354815404,-123.17927956581117,0,0']
 sitl.launch(sitl_args, await_ready=True, restart=True)
-connect_string = 'tcp:127.0.0.1:5760'  # Local TCP endpoint for SITL runs. Can connect MP to 5763
-vehicle = connect(connect_string, wait_ready=True)
+connectString = 'tcp:127.0.0.1:5760'  # Local TCP endpoint for SITL runs. Can connect MP to 5763
+vehicle = connect(connectString, wait_ready=True)
 
 # # Connect to Physical vehicle
-# connect_string = '/dev/ttyAMA0'  # Serial device endpoint for connecting to physical drone
-# vehicle = connect(connect_string, wait_ready=True, baud=57600)
+# connectString = '/dev/ttyAMA0'  # Serial device endpoint for connecting to physical drone
+# vehicle = connect(connectString, wait_ready=True, baud=57600)
+
+# Define airspeed for scan
+airSpeed = 3
 
 
-# We want a probability distribution between choices (1m in every direction)
-# We want this distribution to change according to whether the last move got us closer or farther away
-
-# Define movement choices and initialize choice weights evenly
-north = {'n': 1, 'e': 0}
-south = {'n': -1, 'e': 0}
-east = {'n': 0, 'e': 1}
-west = {'n': 0, 'e': -1}
-choices = (north, south, east, west)
-weights = [25, 25, 25, 25]
-weight_range = {'min': 5, 'max': 45}
-
-
-def send_velocity_cmd(north_vel, east_vel, down_vel, duration):
+def sendVelocityCmd(north_vel, east_vel, down_vel, duration=None):
     msg = vehicle.message_factory.set_position_target_local_ned_encode(
         0,       # time_boot_ms (not used)
         0, 0,    # target_system, target_component
@@ -43,17 +34,20 @@ def send_velocity_cmd(north_vel, east_vel, down_vel, duration):
         0, 0, 0,  # x, y, z acceleration (not supported yet, ignored in GCS_Mavlink)
         0, 0)    # yaw, yaw_rate (not supported yet, ignored in GCS_Mavlink)
 
-    # send command to vehicle on 1 Hz cycle
-    for x in range(0, duration):
+    # send command to vehicle on 1 Hz cycle if provided a duration
+    if duration:
+        for x in range(0, duration):
+            vehicle.send_mavlink(msg)
+            time.sleep(1)
+    else:
         vehicle.send_mavlink(msg)
-        time.sleep(1)
 
 
-def get_location_meters(original_location, dNorth, dEast):
+def getLocationMeters(originalLocation, dNorth, dEast):
     """
     Returns a LocationGlobal object containing the latitude/longitude `dNorth` and `dEast` metres from the
-    specified `original_location`. The returned LocationGlobal has the same `alt` value
-    as `original_location`.
+    specified `originalLocation`. The returned LocationGlobal has the same `alt` value
+    as `originalLocation`.
 
     The function is useful when you want to move the vehicle around specifying locations relative to
     the current vehicle position.
@@ -66,22 +60,22 @@ def get_location_meters(original_location, dNorth, dEast):
     earth_radius = 6378137.0  # Radius of "spherical" earth
     # Coordinate offsets in radians
     dLat = dNorth / earth_radius
-    dLon = dEast / (earth_radius * math.cos(math.pi * original_location.lat / 180))
+    dLon = dEast / (earth_radius * math.cos(math.pi * originalLocation.lat / 180))
 
     # New position in decimal degrees
-    newlat = original_location.lat + (dLat * 180 / math.pi)
-    newlon = original_location.lon + (dLon * 180 / math.pi)
-    if type(original_location) is LocationGlobal:
-        targetlocation = LocationGlobal(newlat, newlon, original_location.alt)
-    elif type(original_location) is LocationGlobalRelative:
-        targetlocation = LocationGlobalRelative(newlat, newlon, original_location.alt)
+    newlat = originalLocation.lat + (dLat * 180 / math.pi)
+    newlon = originalLocation.lon + (dLon * 180 / math.pi)
+    if type(originalLocation) is LocationGlobal:
+        targetlocation = LocationGlobal(newlat, newlon, originalLocation.alt)
+    elif type(originalLocation) is LocationGlobalRelative:
+        targetlocation = LocationGlobalRelative(newlat, newlon, originalLocation.alt)
     else:
         raise Exception("Invalid Location object passed")
 
     return targetlocation
 
 
-def get_distance_meters(aLocation1, aLocation2):
+def getDistanceMeters(aLocation1, aLocation2):
     """
     Returns the ground distance in metres between two LocationGlobal objects.
 
@@ -94,7 +88,7 @@ def get_distance_meters(aLocation1, aLocation2):
     return math.sqrt((dlat * dlat) + (dlong * dlong)) * 1.113195e5
 
 
-def arm_and_takeoff(target):
+def armAndTakeoff(target):
     """
     Arms vehicle and fly to aTargetAltitude.
     """
@@ -109,9 +103,8 @@ def arm_and_takeoff(target):
         cmds = vehicle.commands
         cmds.download()
         cmds.wait_ready()
-        if not vehicle.home_location:
-            print("Waiting for home location ...")
-            time.sleep(1)
+        print("Waiting for home location ...")
+        time.sleep(1)
 
     print("Arming motors")
     # Copter should arm in GUIDED mode
@@ -139,106 +132,128 @@ def move(n_target, e_target, tolerance=0.5):
     tolerance defines how close the quad must get before moving on
     """
     print("Moving %g meters north and %g meters east" % (n_target, e_target))
-    target = get_location_meters(vehicle.location.global_relative_frame, n_target, e_target)
+    target = getLocationMeters(vehicle.location.global_relative_frame, n_target, e_target)
     vehicle.simple_goto(target)
-    distance = get_distance_meters(vehicle.location.global_relative_frame, target)
+    distance = getDistanceMeters(vehicle.location.global_relative_frame, target)
 
     while distance >= tolerance:
-        distance = get_distance_meters(vehicle.location.global_relative_frame, target)
+        distance = getDistanceMeters(vehicle.location.global_relative_frame, target)
         time.sleep(1)
 
 
-def update_weights(choice_ind, last_dist, dist, weight_shift):
-    # That move got us closer
-    # If a weight shift will stay within the weight range, increase likelihood that next move is the same
-    if last_dist > dist and int(weights[choice_ind] + weight_shift) in range(weight_range['min'], weight_range['max'] + 1):
-        # choice_ind odd means choice was south or west
-        # Opposing direction is choice_ind - 1
-        if choice_ind % 2 == 1:
-            weights[choice_ind] = weights[choice_ind] + weight_shift
-            weights[choice_ind - 1] = weights[choice_ind - 1] - weight_shift
-        # choice_ind even means choice was north or east
-        # Opposing direction is choice_ind + 1
-        else:
-            weights[choice_ind] = weights[choice_ind] + weight_shift
-            weights[choice_ind + 1] = weights[choice_ind + 1] - weight_shift
-    # That move put us father away from the target
-    # If a weight shift will stay within the weight range, decrease likelihood that next move is the same
-    elif last_dist < dist and int(weights[choice_ind] - weight_shift) in range(weight_range['min'], weight_range['max'] + 1):
-        # choice_ind odd means choice was south or west
-        # Opposing direction is choice_ind - 1
-        if choice_ind % 2 == 1:
-            weights[choice_ind] = weights[choice_ind] - weight_shift
-            weights[choice_ind - 1] = weights[choice_ind - 1] + weight_shift
-        # choice_ind even means choice was north or east
-        # Opposing direction is choice_ind + 1
-        else:
-            weights[choice_ind] = weights[choice_ind] - weight_shift
-            weights[choice_ind + 1] = weights[choice_ind + 1] + weight_shift
-    # If the weight shift would violate weight range, set weights to limits of weight range
-    elif last_dist > dist and int(weights[choice_ind] + weight_shift) not in range(weight_range['min'], weight_range['max'] + 1):
-        # choice_ind odd means choice was south or west
-        # Opposing direction is choice_ind - 1
-        if choice_ind % 2 == 1:
-            weights[choice_ind] = weight_range['max']
-            weights[choice_ind - 1] = weight_range['min']
-        # choice_ind even means choice was north or east
-        # Opposing direction is choice_ind + 1
-        else:
-            weights[choice_ind] = weight_range['max']
-            weights[choice_ind + 1] = weight_range['min']
-    elif last_dist < dist and int(weights[choice_ind] - weight_shift) not in range(weight_range['min'], weight_range['max'] + 1):
-        # choice_ind odd means choice was south or west
-        # Opposing direction is choice_ind - 1
-        if choice_ind % 2 == 1:
-            weights[choice_ind] = weight_range['min']
-            weights[choice_ind - 1] = weight_range['max']
-        # choice_ind even means choice was north or east
-        # Opposing direction is choice_ind + 1
-        else:
-            weights[choice_ind] = weight_range['min']
-            weights[choice_ind + 1] = weight_range['max']
+def minimizeNS(beacon, tolerance):
+    """
+    North-South Minimization Phase
+    Move North, if you are getting closer, keep going, otherwise go South instead
+    Keep going in a direction, tracking latitude along the way, until you start getting further from the beacon
+    Return to latitude at which distance was minimum
+    """
+    increasingCount = 0
+    lastDist = beacon.getDistance(vehicle.location.global_relative_frame)
+    bestLat = vehicle.location.global_relative_frame.lat
+    print("Going North")
+    sendVelocityCmd(airSpeed, 0, 0, 2)
+    dist = beacon.getDistance(vehicle.location.global_relative_frame)
+    while increasingCount < 2:
+        sendVelocityCmd(airSpeed, 0, 0)
+        bestLat = vehicle.location.global_relative_frame.lat
+        lastDist = dist
+        dist = beacon.getDistance(vehicle.location.global_relative_frame)
+        if lastDist < dist:
+            increasingCount = increasingCount + 1
+        elif lastDist > dist:
+            increasingCount = 0
+            bestLat = vehicle.location.global_relative_frame.lat
+        print("dist: %.4f" % dist)
+        time.sleep(0.1)
+
+    increasingCount = 0
+    lastDist = beacon.getDistance(vehicle.location.global_relative_frame)
+    print("Going South")
+    sendVelocityCmd(0 - airSpeed, 0, 0, 2)
+    dist = beacon.getDistance(vehicle.location.global_relative_frame)
+    while increasingCount < 2:
+        sendVelocityCmd(0 - airSpeed, 0, 0)
+        lastDist = dist
+        dist = beacon.getDistance(vehicle.location.global_relative_frame)
+        if lastDist < dist:
+            increasingCount = increasingCount + 1
+        elif lastDist > dist:
+            increasingCount = 0
+            bestLat = vehicle.location.global_relative_frame.lat
+        print("dist: %.4f" % dist)
+        time.sleep(0.1)
+
+    return bestLat
 
 
-def minimize_distance(location, tolerance=0.5):
-    dist = get_distance_meters(vehicle.location.global_relative_frame, location)
-    while dist >= tolerance:
-        # Get location before action
-        start_loc = vehicle.location.global_relative_frame
-        # Choose action and execute
-        action = random.choices(choices, weights=weights, k=1)[0]
-        prox_factor = 0.15
-        target_travel_dist = dist * prox_factor if dist * prox_factor > 1 else 1   # Each action moves the drone 100 * prox_factor % of the distance to the target (minimum 1 meter)
-        move(action['n'] * target_travel_dist, action['e'] * target_travel_dist)
+def minimizeEW(beacon, tolerance):
+    """
+    East-West Minimization Phase
+    Move East, if you are getting closer, keep going, otherwise go West instead
+    Keep going in a direction, tracking longitude along the way, until you start getting further from the beacon
+    Return to latitude at which distance was minimum
+    """
+    increasingCount = 0
+    lastDist = beacon.getDistance(vehicle.location.global_relative_frame)
+    bestLon = vehicle.location.global_relative_frame.lon
+    print("Going East")
+    sendVelocityCmd(0, airSpeed, 0, 2)
+    dist = beacon.getDistance(vehicle.location.global_relative_frame)
+    while increasingCount < 2:
+        sendVelocityCmd(0, airSpeed, 0)
+        bestLon = vehicle.location.global_relative_frame.lon
+        lastDist = dist
+        dist = beacon.getDistance(vehicle.location.global_relative_frame)
+        if lastDist < dist:
+            increasingCount = increasingCount + 1
+        elif lastDist > dist:
+            increasingCount = 0
+            bestLon = vehicle.location.global_relative_frame.lon
+        print("dist: %.4f" % dist)
+        time.sleep(0.1)
 
-        # Update distance reading and calculate action choice weight shift
-        last_dist = dist
-        dist = get_distance_meters(vehicle.location.global_relative_frame, location)
-        choice_ind = choices.index(action)
+    increasingCount = 0
+    lastDist = beacon.getDistance(vehicle.location.global_relative_frame)
+    print("Going West")
+    sendVelocityCmd(0, 0 - airSpeed, 0, 2)
+    dist = beacon.getDistance(vehicle.location.global_relative_frame)
+    while increasingCount < 2:
+        sendVelocityCmd(0, 0 - airSpeed, 0)
+        lastDist = dist
+        dist = beacon.getDistance(vehicle.location.global_relative_frame)
+        if lastDist < dist:
+            increasingCount = increasingCount + 1
+        elif lastDist > dist:
+            increasingCount = 0
+            bestLon = vehicle.location.global_relative_frame.lon
+        print("dist: %.4f" % dist)
+        time.sleep(0.1)
 
-        # Calculate real travel distance and impact factor
-        real_travel_dist = get_distance_meters(vehicle.location.global_relative_frame, start_loc)
-        impact_factor = abs(dist - last_dist) / real_travel_dist  # Relative magnitude of difference indicates how directly towards/away from the target the movement was
-        weight_shift = 20 * impact_factor  # Changes weight most significantly when actions result in large changes in distance from target
-
-        print("last: %s" % last_dist)
-        print("current: %s" % dist)
-        print("impact factor: %s" % impact_factor)
-        print("weight shift: %s" % weight_shift)
-        update_weights(choice_ind, last_dist, dist, weight_shift)
-        print("weights: %s\n" % weights)
-
-    print("CLOSE ENOUGH")
-    return
+    return bestLon
 
 
-arm_and_takeoff(2)
-move(20, 25)
+def minimizeDistance(beacon, tolerance=0.5):
+    bestLon = minimizeEW(beacon, tolerance)
+    bestLat = minimizeNS(beacon, tolerance)
+    target = vehicle.location.global_relative_frame
+    target.lon = bestLon
+    target.lat = bestLat
+    vehicle.simple_goto(target)
+    while getDistanceMeters(vehicle.location.global_relative_frame, target) > tolerance:
+        print("going to beacon")
+        time.sleep(1)
 
-start_time = time.time()
-minimize_distance(vehicle.home_location, tolerance=3)
-print("--- %s seconds ---" % (time.time() - start_time))
 
+armAndTakeoff(2)
+beacon = Beacon(vehicle.home_location)
+print("going NE")
+sendVelocityCmd(5, 2, 0, 5)
+
+startTime = time.time()
+minimizeDistance(beacon, tolerance=0.5)
+print("--- %s seconds ---" % (time.time() - startTime))
+print("--- %s meters off target ---" % beacon.getDistance(vehicle.location.global_relative_frame))
 vehicle.mode = VehicleMode("LAND")
 vehicle.parameters["WPNAV_SPEED_DN"] = 10  # Set landing speed to 10 cm/s
 
@@ -246,4 +261,10 @@ while vehicle.location.global_relative_frame.alt > 0:
     print("Altitude: %s" % vehicle.location.global_relative_frame.alt)
     time.sleep(1)
 
-print("Returned to launch")
+
+time.sleep(10)
+
+vehicle.close()
+# Shut down simulator if it was started.
+if sitl is not None:
+    sitl.stop()
