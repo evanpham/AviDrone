@@ -19,8 +19,10 @@ vehicle = connect(connectString, wait_ready=True)
 # connectString = '/dev/ttyAMA0'  # Serial device endpoint for connecting to physical drone
 # vehicle = connect(connectString, wait_ready=True, baud=57600)
 
-# Define airspeed for scan
+# Define flight parameters
+redirectDelay = 2
 airSpeed = 3
+
 
 
 def sendVelocityCmd(north_vel, east_vel, down_vel, duration=None):
@@ -152,9 +154,9 @@ def minimizeNS(beacon, tolerance):
     lastDist = beacon.getDistance(vehicle.location.global_relative_frame)
     bestLat = vehicle.location.global_relative_frame.lat
     print("Going North")
-    sendVelocityCmd(airSpeed, 0, 0, 2)
+    sendVelocityCmd(airSpeed, 0, 0, redirectDelay)
     dist = beacon.getDistance(vehicle.location.global_relative_frame)
-    while increasingCount < 2:
+    while increasingCount < 4:
         sendVelocityCmd(airSpeed, 0, 0)
         bestLat = vehicle.location.global_relative_frame.lat
         lastDist = dist
@@ -170,9 +172,9 @@ def minimizeNS(beacon, tolerance):
     increasingCount = 0
     lastDist = beacon.getDistance(vehicle.location.global_relative_frame)
     print("Going South")
-    sendVelocityCmd(0 - airSpeed, 0, 0, 2)
+    sendVelocityCmd(0 - airSpeed, 0, 0, redirectDelay)
     dist = beacon.getDistance(vehicle.location.global_relative_frame)
-    while increasingCount < 2:
+    while increasingCount < 4:
         sendVelocityCmd(0 - airSpeed, 0, 0)
         lastDist = dist
         dist = beacon.getDistance(vehicle.location.global_relative_frame)
@@ -198,9 +200,9 @@ def minimizeEW(beacon, tolerance):
     lastDist = beacon.getDistance(vehicle.location.global_relative_frame)
     bestLon = vehicle.location.global_relative_frame.lon
     print("Going East")
-    sendVelocityCmd(0, airSpeed, 0, 2)
+    sendVelocityCmd(0, airSpeed, 0, redirectDelay)
     dist = beacon.getDistance(vehicle.location.global_relative_frame)
-    while increasingCount < 2:
+    while increasingCount < 4:
         sendVelocityCmd(0, airSpeed, 0)
         bestLon = vehicle.location.global_relative_frame.lon
         lastDist = dist
@@ -216,9 +218,9 @@ def minimizeEW(beacon, tolerance):
     increasingCount = 0
     lastDist = beacon.getDistance(vehicle.location.global_relative_frame)
     print("Going West")
-    sendVelocityCmd(0, 0 - airSpeed, 0, 2)
+    sendVelocityCmd(0, 0 - airSpeed, 0, redirectDelay)
     dist = beacon.getDistance(vehicle.location.global_relative_frame)
-    while increasingCount < 2:
+    while increasingCount < 4:
         sendVelocityCmd(0, 0 - airSpeed, 0)
         lastDist = dist
         dist = beacon.getDistance(vehicle.location.global_relative_frame)
@@ -242,18 +244,19 @@ def minimizeDistance(beacon, tolerance=0.5):
     vehicle.simple_goto(target)
     while getDistanceMeters(vehicle.location.global_relative_frame, target) > tolerance:
         print("going to beacon")
+        vehicle.simple_goto(target)
         time.sleep(1)
+    return target
 
 
 armAndTakeoff(2)
 beacon = Beacon(vehicle.home_location)
-print("going NE")
-sendVelocityCmd(5, 2, 0, 5)
+sendVelocityCmd(2, 2.5, 0, 12)
 
 startTime = time.time()
-minimizeDistance(beacon, tolerance=0.5)
+target = minimizeDistance(beacon, tolerance=0.5)
 print("--- %s seconds ---" % (time.time() - startTime))
-print("--- %s meters off target ---" % beacon.getDistance(vehicle.location.global_relative_frame))
+print("--- beacon %s meters off target ---" % beacon.getDistance(target))
 vehicle.mode = VehicleMode("LAND")
 vehicle.parameters["WPNAV_SPEED_DN"] = 10  # Set landing speed to 10 cm/s
 
@@ -261,6 +264,7 @@ while vehicle.location.global_relative_frame.alt > 0:
     print("Altitude: %s" % vehicle.location.global_relative_frame.alt)
     time.sleep(1)
 
+print("--- landed %s meters off beacon ---" % beacon.getDistance(vehicle.location.global_relative_frame))
 
 time.sleep(10)
 
