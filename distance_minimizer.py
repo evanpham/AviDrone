@@ -21,7 +21,7 @@ vehicle = connect(connectString, wait_ready=True)
 
 # Define flight parameters
 redirectDelay = 2
-airSpeed = 3
+airSpeed = 2
 
 
 
@@ -237,7 +237,9 @@ def minimizeEW(beacon, tolerance):
 
 def minimizeDistance(beacon, tolerance=0.5):
     bestLon = minimizeEW(beacon, tolerance)
+    sendVelocityCmd(0, 0, 0)
     bestLat = minimizeNS(beacon, tolerance)
+    sendVelocityCmd(0, 0, 0, 2)
     target = vehicle.location.global_relative_frame
     target.lon = bestLon
     target.lat = bestLat

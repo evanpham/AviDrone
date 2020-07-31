@@ -77,15 +77,17 @@ def arm_and_takeoff(target):
     print("Reached target altitude")
 
 
-arm_and_takeoff(2)
+arm_and_takeoff(1)
 
-# vehicle.mode = VehicleMode("LOITER")
-# while not vehicle.mode.name == "LOITER":
-#     print("Waiting for hovering...")
-#     time.sleep(1)
+vehicle.mode = VehicleMode("LOITER")
+while not vehicle.mode.name == "LOITER":
+    print("Waiting for hovering...")
+    time.sleep(1)
 
 print("We Hovering!")
-time.sleep(5)
+for i in range(5):
+    print("Altitude: ", vehicle.location.global_relative_frame.alt)
+    time.sleep(1)
 
 print("We Landing!")
 vehicle.parameters["WPNAV_SPEED_DN"] = 10  # Set landing speed to 10 cm/s
