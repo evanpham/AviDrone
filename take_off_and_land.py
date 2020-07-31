@@ -4,17 +4,17 @@ from dronekit import connect, VehicleMode
 import time
 
 # Connect to SITL vehicle
-from dronekit_sitl import SITL
-sitl = SITL()
-sitl.download('copter', '3.3', verbose=True)
-sitl_args = ['-I0', '--model', 'quad', '--home=49.26778354815404,-123.17927956581117,0,90']
-sitl.launch(sitl_args, await_ready=True, restart=True)
-connect_string = 'tcp:127.0.0.1:5760'  # Local TCP endpoint for SITL runs. Can connect MP to 5763
-vehicle = connect(connect_string, wait_ready=True)
+#from dronekit_sitl import SITL
+#sitl = SITL()
+#sitl.download('copter', '3.3', verbose=True)
+#sitl_args = ['-I0', '--model', 'quad', '--home=49.26778354815404,-123.17927956581117,0,90']
+#sitl.launch(sitl_args, await_ready=True, restart=True)
+#connect_string = 'tcp:127.0.0.1:5760'  # Local TCP endpoint for SITL runs. Can connect MP to 5763
+#vehicle = connect(connect_string, wait_ready=True)
 
-# # Connect to Physical vehicle
-# connect_string = '/dev/ttyAMA0'  # Serial device endpoint for connecting to physical drone
-# vehicle = connect(connect_string, wait_ready=True, baud=57600)
+# Connect to Physical vehicle
+connect_string = '/dev/ttyAMA0'  # Serial device endpoint for connecting to physical drone
+vehicle = connect(connect_string, wait_ready=True, baud=57600)
 
 # Getting state information stored in Vehicle class atributes
 print("Autopilot Firmware version: %s" % vehicle.version)
