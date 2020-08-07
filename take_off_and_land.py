@@ -13,7 +13,7 @@ import time
 #vehicle = connect(connect_string, wait_ready=True)
 
 # Connect to Physical vehicle
-connect_string = '/dev/ttyAMA0'  # Serial device endpoint for connecting to physical drone
+connect_string = '/dev/ttyS0'  # Serial device endpoint for connecting to physical drone
 vehicle = connect(connect_string, wait_ready=True, baud=57600)
 
 # Getting state information stored in Vehicle class atributes
@@ -27,7 +27,7 @@ print("Local Location: %s" % vehicle.location.local_frame)    # NED
 while not vehicle.home_location:
     cmds = vehicle.commands
     cmds.download()
-    cmds.wait_ready()
+
     if not vehicle.home_location:
         print("Waiting for home location ...")
         time.sleep(1)
@@ -41,9 +41,6 @@ print("Is Armable?: %s" % vehicle.is_armable)
 print("System status: %s" % vehicle.system_status.state)
 print("Mode: %s" % vehicle.mode.name)  # Settable
 print("Armed: %s" % vehicle.armed)  # Settable
-
-# Print the value of the THR_MIN parameter.
-print("Minimum Throttle: %s" % vehicle.parameters['THR_MIN'])
 
 
 def arm_and_takeoff(target):
@@ -63,6 +60,8 @@ def arm_and_takeoff(target):
     vehicle.armed = True
 
     while not vehicle.armed:
+        vehicle.mode = VehicleMode("GUIDED")
+        vehicle.armed = True
         print("Waiting for arming...")
         time.sleep(1)
 
