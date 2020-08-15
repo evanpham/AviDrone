@@ -4,33 +4,33 @@ from dronekit import connect, VehicleMode
 import time
 
 # Connect to SITL vehicle
-from dronekit_sitl import SITL
-sitl = SITL()
-sitl.download('copter', '3.3', verbose=True)
-sitl_args = ['-I0', '--model', 'quad', '--home=49.26778354815404,-123.17927956581117,0,90']
-sitl.launch(sitl_args, await_ready=True, restart=True)
-connect_string = 'tcp:127.0.0.1:5760'  # Local TCP endpoint for SITL runs. Can connect MP to 5763
-vehicle = connect(connect_string, wait_ready=True)
+# from dronekit_sitl import SITL
+# sitl = SITL()
+# sitl.download('copter', '3.3', verbose=True)
+# sitl_args = ['-I0', '--model', 'quad', '--home=49.26778354815404,-123.17927956581117,0,90']
+# sitl.launch(sitl_args, await_ready=True, restart=True)
+# connect_string = 'tcp:127.0.0.1:5760'  # Local TCP endpoint for SITL runs. Can connect MP to 5763
+# vehicle = connect(connect_string, wait_ready=True)
 
 # # Connect to Physical vehicle
-# connect_string = '/dev/ttyAMA0'  # Serial device endpoint for connecting to physical drone
-# vehicle = connect(connect_string, wait_ready=True, baud=57600)
+connect_string = '/dev/ttyS0'  # Serial device endpoint for connecting to physical drone
+vehicle = connect(connect_string, wait_ready=True, baud=57600)
+print("Connected to vehicle on %s" % connect_string)
 
 # Getting state information stored in Vehicle class atributes
-print("Autopilot Firmware version: %s" % vehicle.version)
-print("Autopilot capabilities (supports ftp): %s" % vehicle.capabilities.ftp)
 print("Global Location: %s" % vehicle.location.global_frame)
 print("Global Location (relative altitude): %s" % vehicle.location.global_relative_frame)
 print("Local Location: %s" % vehicle.location.local_frame)    # NED
+
 # Need to download vehicle commands before getting home locaiton
 # Get Vehicle Home location - will be `None` until first set by autopilot
 while not vehicle.home_location:
     cmds = vehicle.commands
     cmds.download()
     cmds.wait_ready()
-    if not vehicle.home_location:
-        print("Waiting for home location ...")
-        time.sleep(1)
+    print("Waiting for home location ...")
+    time.sleep(1)
+
 print("Home location: %s" % vehicle.home_location)
 print("Attitude: %s" % vehicle.attitude)
 print("Velocity: %s" % vehicle.velocity)
@@ -42,8 +42,8 @@ print("System status: %s" % vehicle.system_status.state)
 print("Mode: %s" % vehicle.mode.name)  # Settable
 print("Armed: %s" % vehicle.armed)  # Settable
 
-# Print the value of the THR_MIN parameter.
-print("Minimum Throttle: %s" % vehicle.parameters['THR_MIN'])
+vehicle.parameters["WPNAV_SPEED_DN"] = 10  # Set landing speed to 10 cm/s
+vehicle.parameters["WPNAV_SPEED_UP"] = 10  # Set takeoff speed to 10 cm/s
 
 
 def arm_and_takeoff(target):
@@ -62,18 +62,22 @@ def arm_and_takeoff(target):
     vehicle.mode = VehicleMode("GUIDED")
     vehicle.armed = True
 
-    while not vehicle.armed:
+    while not (vehicle.armed and vehicle.mode == VehicleMode("GUIDED")):
+        vehicle.mode = VehicleMode("GUIDED")
+        vehicle.armed = True
         print("Waiting for arming...")
         time.sleep(1)
 
-    print("We Taking off!")
+    print("Taking off!")
     vehicle.simple_takeoff(target)  # Take off to target altitude
 
     # Wait until the vehicle reaches a safe height before processing the goto
     # (otherwise the command after Vehicle.simple_takeoff will execute immediately).
-    while vehicle.location.global_relative_frame.alt <= target * 0.95:
-        print("Altitude: ", vehicle.location.global_relative_frame.alt)
-        time.sleep(1)
+    alt = vehicle.location.global_relative_frame.alt
+    while alt <= target * 0.95:
+        print("Altitude: %s" % alt)
+        alt = vehicle.location.global_relative_frame.alt
+        time.sleep(0.25)
     print("Reached target altitude")
 
 
@@ -82,22 +86,41 @@ arm_and_takeoff(1)
 vehicle.mode = VehicleMode("LOITER")
 while not vehicle.mode.name == "LOITER":
     print("Waiting for hovering...")
-    time.sleep(1)
+    vehicle.mode = VehicleMode("LOITER")
+    time.sleep(0.25)
 
-print("We Hovering!")
-for i in range(5):
+# Hover for 2 seconds
+print("Hovering!")
+for i in range(8):
     print("Altitude: ", vehicle.location.global_relative_frame.alt)
-    time.sleep(1)
+    time.sleep(0.25)
 
-print("We Landing!")
-vehicle.parameters["WPNAV_SPEED_DN"] = 10  # Set landing speed to 10 cm/s
+# Land
 vehicle.mode = VehicleMode("LAND")
+while not vehicle.mode.name == "LAND":
+    print("Switching to Landing Mode...")
+    vehicle.mode = VehicleMode("LAND")
+    time.sleep(0.25)
+print("Landing!")
 
-while vehicle.location.global_relative_frame.alt >= 0:
-    print("Altitude: %s" % vehicle.location.global_relative_frame.alt)
-    time.sleep(1)
+zeroCount = 0
+alt = vehicle.location.global_relative_frame.alt
+# Barometric readings can vary, to ensure a landing has actually occured wait for the altitude reading to be ground-level for a second
+while alt >= 0 or zeroCount < 4:
+    print("Altitude: %s" % alt)
+    alt = vehicle.location.global_relative_frame.alt
+    time.sleep(0.25)
+    if alt <= 0:
+        zeroCount += 1
+    else:
+        zeroCount = 0
 
 print("LANDED!")
+
+while vehicle.armed:
+    vehicle.armed = False
+    print("Disarming...")
+    time.sleep(0.25)
 
 # Close vehicle
 vehicle.close()
